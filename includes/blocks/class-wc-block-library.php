@@ -37,6 +37,11 @@ class WC_Block_Library {
 	 * Constructor.
 	 */
 	public function __construct() {
+		// Shortcut out if we see the feature plugin, v1.4 or below.
+		// note: `WGPB_VERSION` is transformed to `WC_VERSION` in the grunt copy task.
+		if ( defined( 'WGPB_VERSION' ) && version_compare( WGPB_VERSION, '1.4.0', '<=' ) ) {
+			return;
+		}
 		if ( function_exists( 'register_block_type' ) ) {
 			add_action( 'init', array( 'WC_Block_Library', 'register_blocks' ) );
 			add_action( 'init', array( 'WC_Block_Library', 'register_assets' ) );
@@ -268,12 +273,13 @@ class WC_Block_Library {
 
 		// Global settings used in each block.
 		$block_settings = array(
-			'min_columns'       => wc_get_theme_support( 'product_grid::min_columns', 1 ),
-			'max_columns'       => wc_get_theme_support( 'product_grid::max_columns', 6 ),
-			'default_columns'   => wc_get_default_products_per_row(),
-			'min_rows'          => wc_get_theme_support( 'product_grid::min_rows', 1 ),
-			'max_rows'          => wc_get_theme_support( 'product_grid::max_rows', 6 ),
-			'default_rows'      => wc_get_default_product_rows_per_page(),
+			'min_columns'       => wc_get_theme_support( 'product_blocks::min_columns', 1 ),
+			'max_columns'       => wc_get_theme_support( 'product_blocks::max_columns', 6 ),
+			'default_columns'   => wc_get_theme_support( 'product_blocks::default_columns', 3 ),
+			'min_rows'          => wc_get_theme_support( 'product_blocks::min_rows', 1 ),
+			'max_rows'          => wc_get_theme_support( 'product_blocks::max_rows', 6 ),
+			'default_rows'      => wc_get_theme_support( 'product_blocks::default_rows', 1 ),
+			'thumbnail_size'    => wc_get_theme_support( 'thumbnail_image_width', 300 ),
 			'placeholderImgSrc' => wc_placeholder_img_src(),
 			'min_height'        => wc_get_theme_support( 'featured_block::min_height', 500 ),
 			'default_height'    => wc_get_theme_support( 'featured_block::default_height', 500 ),
