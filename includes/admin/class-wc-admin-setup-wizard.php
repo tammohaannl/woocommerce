@@ -141,11 +141,7 @@ class WC_Admin_Setup_Wizard {
 	 * @return boolean
 	 */
 	protected function should_show_facebook() {
-		$end_date_facebook_recommendation = new DateTime( '8 October 2019' );
-		$current_user_date = new DateTime( current_time( 'Y-m-d' ) );
-
-		return current_user_can( 'install_plugins' ) &&
-			$end_date_facebook_recommendation >= $current_user_date;
+		return current_user_can( 'install_plugins' );
 	}
 
 	/**
@@ -172,7 +168,7 @@ class WC_Admin_Setup_Wizard {
 		$suffix          = defined( 'SCRIPT_DEBUG' ) && SCRIPT_DEBUG ? '' : '.min';
 
 		wp_register_script( 'jquery-blockui', WC()->plugin_url() . '/assets/js/jquery-blockui/jquery.blockUI' . $suffix . '.js', array( 'jquery' ), '2.70', true );
-		wp_register_script( 'selectWoo', WC()->plugin_url() . '/assets/js/selectWoo/selectWoo.full' . $suffix . '.js', array( 'jquery' ), '1.0.0' );
+		wp_register_script( 'selectWoo', WC()->plugin_url() . '/assets/js/selectWoo/selectWoo.full' . $suffix . '.js', array( 'jquery' ), '1.0.6' );
 		wp_register_script( 'wc-enhanced-select', WC()->plugin_url() . '/assets/js/admin/wc-enhanced-select' . $suffix . '.js', array( 'jquery', 'selectWoo' ), WC_VERSION );
 		wp_localize_script(
 			'wc-enhanced-select',
@@ -488,7 +484,7 @@ class WC_Admin_Setup_Wizard {
 							echo esc_html( sprintf( __( '%1$s (%2$s)', 'woocommerce' ), $name, $code ) );
 						} else {
 							/* translators: 1: currency name 2: currency symbol, 3: currency code */
-							echo esc_html( sprintf( __( '%1$s (%2$s / %3$s)', 'woocommerce' ), $name, get_woocommerce_currency_symbol( $code ), $code ) );
+							echo esc_html( sprintf( __( '%1$s (%2$s %3$s)', 'woocommerce' ), $name, get_woocommerce_currency_symbol( $code ), $code ) );
 						}
 						?>
 					</option>

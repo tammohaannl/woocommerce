@@ -864,19 +864,6 @@ class WC_Product_Data_Store_CPT extends WC_Data_Store_WP implements WC_Object_Da
 			$outofstock_where = ' AND exclude_join.object_id IS NULL';
 		}
 
-		// Fetch a list of non-published parent products and exlude them, quicker than joining in the main query below.
-		$non_published_products = $wpdb->get_col(
-			"
-			SELECT posts.ID as id FROM `$wpdb->posts` AS posts
-			WHERE posts.post_type = 'product'
-			AND posts.post_parent = 0
-			AND posts.post_status != 'publish'
-			"
-		);
-		if ( 0 < count( $non_published_products ) ) {
-			$non_published_where = ' AND posts.post_parent NOT IN ( ' . implode( ',', $non_published_products ) . ')';
-		}
-
 		return $wpdb->get_results(
 			// phpcs:disable WordPress.DB.PreparedSQL.NotPrepared
 			"
@@ -888,7 +875,12 @@ class WC_Product_Data_Store_CPT extends WC_Data_Store_WP implements WC_Object_Da
 			AND posts.post_status = 'publish'
 			AND lookup.onsale = 1
 			$outofstock_where
-			$non_published_where
+			AND posts.post_parent NOT IN (
+				SELECT ID FROM `$wpdb->posts` as posts
+				WHERE posts.post_type = 'product'
+				AND posts.post_parent = 0
+				AND posts.post_status != 'publish'
+			)
 			GROUP BY posts.ID
 			"
 			// phpcs:enable WordPress.DB.PreparedSQL.NotPrepared
@@ -1128,6 +1120,60 @@ class WC_Product_Data_Store_CPT extends WC_Data_Store_WP implements WC_Object_Da
 			 */
 			return ( array_map( 'sanitize_title', $match_attributes ) === $match_attributes ) ? 0 : $this->find_matching_product_variation( $product, array_map( 'sanitize_title', $match_attributes ) );
 		}
+	}
+
+	/**
+	 * Creates all possible combinations of variations from the attributes, without creating duplicates.
+	 *
+	 * @since  3.6.0
+	 * @todo   Add to interface in 4.0.
+	 * @param  WC_Product $product Variable product.
+	 * @param  int        $limit Limit the number of created variations.
+	 * @return int        Number of created variations.
+	 */
+	public function create_all_product_variations( $product, $limit = -1 ) {
+		$count = 0;
+
+		if ( ! $product ) {
+			return $count;
+		}
+
+		$attributes = wc_list_pluck( array_filter( $product->get_attributes(), 'wc_attributes_array_filter_variation' ), 'get_slugs' );
+
+		if ( empty( $attributes ) ) {
+			return $count;
+		}
+
+		// Get existing variations so we don't create duplicates.
+		$existing_variations = array_map( 'wc_get_product', $product->get_children() );
+		$existing_attributes = array();
+
+		foreach ( $existing_variations as $existing_variation ) {
+			$existing_attributes[] = $existing_variation->get_attributes();
+		}
+
+		$possible_attributes = array_reverse( wc_array_cartesian( $attributes ) );
+
+		foreach ( $possible_attributes as $possible_attribute ) {
+			// Allow any order if key/values -- do not use strict mode.
+			if ( in_array( $possible_attribute, $existing_attributes ) ) { // phpcs:ignore WordPress.PHP.StrictInArray.MissingTrueStrict
+				continue;
+			}
+			$variation = new WC_Product_Variation();
+			$variation->set_parent_id( $product->get_id() );
+			$variation->set_attributes( $possible_attribute );
+			$variation_id = $variation->save();
+
+			do_action( 'product_variation_linked', $variation_id );
+
+			$count ++;
+
+			if ( $limit > 0 && $count >= $limit ) {
+				break;
+			}
+		}
+
+		return $count;
 	}
 
 	/**
@@ -1422,14 +1468,16 @@ class WC_Product_Data_Store_CPT extends WC_Data_Store_WP implements WC_Object_Da
 	/**
 	 * Search product data for a term and return ids.
 	 *
-	 * @param  string   $term Search term.
-	 * @param  string   $type Type of product.
-	 * @param  bool     $include_variations Include variations in search or not.
-	 * @param  bool     $all_statuses Should we search all statuses or limit to published.
-	 * @param  null|int $limit Limit returned results. @since 3.5.0.
+	 * @param  string     $term Search term.
+	 * @param  string     $type Type of product.
+	 * @param  bool       $include_variations Include variations in search or not.
+	 * @param  bool       $all_statuses Should we search all statuses or limit to published.
+	 * @param  null|int   $limit Limit returned results. @since 3.5.0.
+	 * @param  null|array $include Keep specific results. @since 3.6.0.
+	 * @param  null|array $exclude Discard specific results. @since 3.6.0.
 	 * @return array of ids
 	 */
-	public function search_products( $term, $type = '', $include_variations = false, $all_statuses = false, $limit = null ) {
+	public function search_products( $term, $type = '', $include_variations = false, $all_statuses = false, $limit = null, $include = null, $exclude = null ) {
 		global $wpdb;
 
 		$custom_results = apply_filters( 'woocommerce_product_pre_search_products', false, $term, $type, $include_variations, $all_statuses, $limit );
@@ -1484,7 +1532,15 @@ class WC_Product_Data_Store_CPT extends WC_Data_Store_WP implements WC_Object_Da
 		}
 
 		if ( ! empty( $search_queries ) ) {
-			$search_where = 'AND (' . implode( ') OR (', $search_queries ) . ')';
+			$search_where = ' AND (' . implode( ') OR (', $search_queries ) . ') ';
+		}
+
+		if ( ! empty( $include ) && is_array( $include ) ) {
+			$search_where .= ' AND posts.ID IN(' . implode( ',', array_map( 'absint', $include ) ) . ') ';
+		}
+
+		if ( ! empty( $exclude ) && is_array( $exclude ) ) {
+			$search_where .= ' AND posts.ID NOT IN(' . implode( ',', array_map( 'absint', $exclude ) ) . ') ';
 		}
 
 		if ( 'virtual' === $type ) {

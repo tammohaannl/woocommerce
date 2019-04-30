@@ -664,8 +664,6 @@ class WC_Countries {
 				'priority'     => 50,
 			),
 			'address_2'  => array(
-				'label'        => __( 'Apartment, suite, unit etc.', 'woocommerce' ),
-				'label_class'  => array( 'screen-reader-text' ),
 				'placeholder'  => esc_attr( $address_2_placeholder ),
 				'class'        => array( 'form-row-wide', 'address-field' ),
 				'autocomplete' => 'address-line2',
@@ -919,6 +917,11 @@ class WC_Countries {
 						),
 					),
 					'GF' => array(
+						'state' => array(
+							'required' => false,
+						),
+					),
+					'GR' => array(
 						'state' => array(
 							'required' => false,
 						),

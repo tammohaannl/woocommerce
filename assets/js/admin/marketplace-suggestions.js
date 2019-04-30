@@ -153,7 +153,7 @@
 		}
 
 		// Render DOM elements for suggestion content.
-		function renderSuggestionContent( title, copy ) {
+		function renderSuggestionContent( slug, title, copy ) {
 			var container = document.createElement( 'div' );
 
 			container.classList.add( 'marketplace-suggestion-container-content' );
@@ -168,6 +168,26 @@
 				var body = document.createElement( 'p' );
 				body.textContent = copy;
 				container.appendChild( body );
+			}
+
+			// Conditionally add in a Manage suggestions link to product edit
+			// metabox footer (based on suggestion slug).
+			var slugsWithManage = [
+				'product-edit-empty-footer-browse-all',
+				'product-edit-meta-tab-footer-browse-all'
+			];
+			if ( -1 !== slugsWithManage.indexOf( slug ) ) {
+				container.classList.add( 'has-manage-link' );
+
+				var manageSuggestionsLink = document.createElement( 'a' );
+				manageSuggestionsLink.classList.add( 'marketplace-suggestion-manage-link', 'linkout' );
+				manageSuggestionsLink.setAttribute(
+					'href',
+					marketplace_suggestions.manage_suggestions_url
+				);
+				manageSuggestionsLink.textContent =  marketplace_suggestions.i18n_marketplace_suggestions_manage_suggestions;
+
+				container.appendChild( manageSuggestionsLink );
 			}
 
 			return container;
@@ -194,49 +214,6 @@
 			return container;
 		}
 
-		function getTableBannerColspan() {
-			return $( 'table.wp-list-table.posts thead th:not(.hidden)' ).length + 1;
-		}
-
-		// Render a "table banner" style suggestion.
-		// These are used in admin lists, e.g. products list.
-		function renderTableBanner( context, product, promoted, slug, iconUrl, title, copy, url, buttonText, allowDismiss ) {
-			if ( ! title || ! url ) {
-				return;
-			}
-
-			var row = document.createElement( 'tr' );
-			row.classList.add( 'marketplace-table-banner' );
-			row.classList.add( 'marketplace-suggestions-container' );
-			row.classList.add( 'showing-suggestion' );
-			row.dataset.marketplaceSuggestionsContext = 'products-list-inline';
-			row.dataset.suggestionSlug = slug;
-
-			var cell = document.createElement( 'td' );
-			cell.classList.add( 'marketplace-table-banner-td' );
-			cell.setAttribute( 'colspan', getTableBannerColspan() );
-
-			var container = document.createElement( 'div' );
-			container.classList.add( 'marketplace-suggestion-container' );
-			container.dataset.suggestionSlug = slug;
-
-			var icon = renderSuggestionIcon( iconUrl );
-			if ( icon ) {
-				container.appendChild( icon );
-			}
-			container.appendChild(
-				renderSuggestionContent( title, copy )
-			);
-			container.appendChild(
-				renderSuggestionCTA( context, product, promoted, slug, url, buttonText, true, allowDismiss )
-			);
-
-			cell.appendChild( container );
-			row.appendChild( cell );
-
-			return row;
-		}
-
 		// Render a "list item" style suggestion.
 		// These are used in onboarding style contexts, e.g. products list empty state.
 		function renderListItem( context, product, promoted, slug, iconUrl, title, copy, url, linkText, linkIsButton, allowDismiss ) {
@@ -249,7 +226,7 @@
 				container.appendChild( icon );
 			}
 			container.appendChild(
-				renderSuggestionContent( title, copy )
+				renderSuggestionContent( slug, title, copy )
 			);
 			container.appendChild(
 				renderSuggestionCTA( context, product, promoted, slug, url, linkText, linkIsButton, allowDismiss )
@@ -335,11 +312,25 @@
 			}
 		}
 
-		function refreshBannerColspanForScreenOptions() {
-			$( '#show-settings-link' ).on( 'focus.scroll-into-view', function() {
-				$( '.marketplace-table-banner-td' ).attr( 'colspan', getTableBannerColspan() );
-			});
+		function addManageSuggestionsTracksHandler() {
+			$( 'a.marketplace-suggestion-manage-link' ).on( 'click', function() {
+				window.wcTracks.recordEvent( 'marketplace_suggestions_manage_clicked' );
+			} );
 		}
+
+		function isContextHiddenOnPageLoad( context ) {
+			// Some suggestions are not visible on page load;
+			// e.g. the user reveals them by selecting a tab.
+			var revealableSuggestionsContexts = [
+				'product-edit-meta-tab-header',
+				'product-edit-meta-tab-body',
+				'product-edit-meta-tab-footer'
+			];
+			return _.includes( revealableSuggestionsContexts, context );
+		}
+
+		// track the current product data tab to avoid over-tracking suggestions
+		var currentTab = false;
 
 		// Render suggestion data in appropriate places in UI.
 		function displaySuggestions( marketplaceSuggestionsApiData ) {
@@ -389,96 +380,42 @@
 					$( this ).addClass( 'showing-suggestion' );
 					usedSuggestionsContexts.push( context );
 
-					window.wcTracks.recordEvent( 'marketplace_suggestion_displayed', {
-						suggestion_slug: suggestionsToDisplay[ i ].slug,
-						context: context,
-						product: suggestionsToDisplay[ i ].product || '',
-						promoted: suggestionsToDisplay[ i ].promoted || '',
-						target: suggestionsToDisplay[ i ].url || ''
-					} );
-				}
-			} );
-
-			// render inline promos in products list
-			if ( 0 === usedSuggestionsContexts.length ) {
-				$( '.wp-admin.admin-bar.edit-php.post-type-product table.wp-list-table.posts tbody').first().each( function() {
-					var context = 'products-list-inline';
-
-					// product list banner suggestion is temporarily suppressed after a recent dismissal
-					var contextSnoozeCookie = 'woocommerce_snooze_suggestions__' + context;
-					if ( Cookies.get( contextSnoozeCookie ) ) {
-						return;
-					}
-
-					// product list banner suggestion has been dismissed repeatedly – give user a break
-					// note that this is longer term but still temporary, based on the expiry of the cookie
-					var hideSuggestionsDismissalThreshold = 5;
-					if ( parseInt( Cookies.get( 'contextDismissalCountCookie' ), 10 ) > hideSuggestionsDismissalThreshold ) {
-						return;
-					}
-
-
-					// find promotions that target this context
-					var promos = getRelevantPromotions( marketplaceSuggestionsApiData, context );
-					if ( ! promos || ! promos.length ) {
-						return;
-					}
-
-					// shuffle/randomly select the suggestion to display
-					var suggestionToDisplay = _.sample( promos );
-
-					// dismiss is allowed by default
-					var allowDismiss = true;
-					if ( false === suggestionToDisplay['allow-dismiss'] ) {
-						allowDismiss = false;
-					}
-
-					// render first promo
-					var content = renderTableBanner(
-						context,
-						suggestionToDisplay.product,
-						suggestionToDisplay.promoted,
-						suggestionToDisplay.slug,
-						suggestionToDisplay.icon,
-						suggestionToDisplay.title,
-						suggestionToDisplay.copy,
-						suggestionToDisplay.url,
-						suggestionToDisplay['button-text'],
-						allowDismiss
-					);
-
-					if ( content ) {
-						// where should we put it in the list?
-						var rows = $( this ).children();
-						var minRow = 3;
-
-						$( content ).hide();
-
-						if ( rows.length <= minRow ) {
-							// if small number of rows, append at end
-							$( this ).append( content );
-						}
-						else {
-							// for more rows, insert
-							$( rows[ minRow - 1 ] ).after( content );
-						}
-
-						$( content ).fadeIn();
-
-						usedSuggestionsContexts.push( context );
-
-						refreshBannerColspanForScreenOptions( content );
-
+					if ( ! isContextHiddenOnPageLoad( context ) ) {
+						// Fire 'displayed' tracks events for immediately visible suggestions.
 						window.wcTracks.recordEvent( 'marketplace_suggestion_displayed', {
-							suggestion_slug: suggestionToDisplay.slug,
+							suggestion_slug: suggestionsToDisplay[ i ].slug,
 							context: context,
-							product: suggestionToDisplay.product || '',
-							promoted: suggestionToDisplay.promoted || '',
-							target: suggestionToDisplay.url || ''
+							product: suggestionsToDisplay[ i ].product || '',
+							promoted: suggestionsToDisplay[ i ].promoted || '',
+							target: suggestionsToDisplay[ i ].url || ''
+						} );
+					}
+				}
+
+				// Track when suggestions are displayed (and not already visible).
+				$( 'ul.product_data_tabs li.marketplace-suggestions_options a' ).click( function( e ) {
+					e.preventDefault();
+
+					if ( '#marketplace_suggestions' === currentTab ) {
+						return;
+					}
+
+					if ( ! isContextHiddenOnPageLoad( context ) ) {
+						// We've already fired 'displayed' event above.
+						return;
+					}
+
+					for ( var i in suggestionsToDisplay ) {
+						window.wcTracks.recordEvent( 'marketplace_suggestion_displayed', {
+							suggestion_slug: suggestionsToDisplay[ i ].slug,
+							context: context,
+							product: suggestionsToDisplay[ i ].product || '',
+							promoted: suggestionsToDisplay[ i ].promoted || '',
+							target: suggestionsToDisplay[ i ].url || ''
 						} );
 					}
 				} );
-			}
+			} );
 
 			hidePageElementsForSuggestionState( usedSuggestionsContexts );
 			tidyProductEditMetabox();
@@ -486,7 +423,15 @@
 
 		if ( marketplace_suggestions.suggestions_data ) {
 			displaySuggestions( marketplace_suggestions.suggestions_data );
+
+			// track the current product data tab to avoid over-reporting suggestion views
+			$( 'ul.product_data_tabs' ).on( 'click', 'li a', function( e ) {
+				e.preventDefault();
+				currentTab = $( this ).attr( 'href' );
+			} );
 		}
+
+		addManageSuggestionsTracksHandler();
 	});
 
 })( jQuery, marketplace_suggestions, ajaxurl );
