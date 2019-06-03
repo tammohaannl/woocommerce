@@ -178,7 +178,6 @@ class WC_Structured_Data {
 	 * Generates Product structured data.
 	 *
 	 * Hooked into `woocommerce_single_product_summary` action hook.
-	 * Hooked into `woocommerce_shop_loop` action hook.
 	 *
 	 * @param WC_Product $product Product data (default: null).
 	 */
@@ -257,7 +256,7 @@ class WC_Structured_Data {
 
 			$markup_offer += array(
 				'priceCurrency' => $currency,
-				'availability'  => 'https://schema.org/' . ( $product->is_in_stock() ? 'InStock' : 'OutOfStock' ),
+				'availability'  => 'http://schema.org/' . ( $product->is_in_stock() ? 'InStock' : 'OutOfStock' ),
 				'url'           => $permalink,
 				'seller'        => array(
 					'@type' => 'Organization',
