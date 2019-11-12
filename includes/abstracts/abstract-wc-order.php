@@ -165,8 +165,17 @@ abstract class WC_Abstract_Order extends WC_Abstract_Legacy_Order {
 	 * @return int order ID
 	 */
 	public function save() {
-		if ( $this->data_store ) {
-			// Trigger action before saving to the DB. Allows you to adjust object props before save.
+		if ( ! $this->data_store ) {
+			return $this->get_id();
+		}
+
+		try {
+			/**
+			 * Trigger action before saving to the DB. Allows you to adjust object props before save.
+			 *
+			 * @param WC_Data          $this The object being saved.
+			 * @param WC_Data_Store_WP $data_store THe data store persisting the data.
+			 */
 			do_action( 'woocommerce_before_' . $this->object_type . '_object_save', $this, $this->data_store );
 
 			if ( $this->get_id() ) {
@@ -174,9 +183,39 @@ abstract class WC_Abstract_Order extends WC_Abstract_Legacy_Order {
 			} else {
 				$this->data_store->create( $this );
 			}
+
+			$this->save_items();
+
+			/**
+			 * Trigger action after saving to the DB.
+			 *
+			 * @param WC_Data          $this The object being saved.
+			 * @param WC_Data_Store_WP $data_store THe data store persisting the data.
+			 */
+			do_action( 'woocommerce_after_' . $this->object_type . '_object_save', $this, $this->data_store );
+
+		} catch ( Exception $e ) {
+			$this->handle_exception( $e, __( 'Error saving order.', 'woocommerce' ) );
 		}
-		$this->save_items();
+
 		return $this->get_id();
+	}
+
+	/**
+	 * Log an error about this order is exception is encountered.
+	 *
+	 * @param Exception $e Exception object.
+	 * @param string    $message Message regarding exception thrown.
+	 * @since 3.7.0
+	 */
+	protected function handle_exception( $e, $message = 'Error' ) {
+		wc_get_logger()->error(
+			$message,
+			array(
+				'order' => $this,
+				'error' => $e,
+			)
+		);
 	}
 
 	/**
@@ -965,9 +1004,10 @@ abstract class WC_Abstract_Order extends WC_Abstract_Legacy_Order {
 			return $applied;
 		}
 
+		$data_store = $coupon->get_data_store();
+
 		// Check specific for guest checkouts here as well since WC_Cart handles that seperately in check_customer_coupons.
-		if ( 0 === $this->get_customer_id() ) {
-			$data_store  = $coupon->get_data_store();
+		if ( $data_store && 0 === $this->get_customer_id() ) {
 			$usage_count = $data_store->get_usage_by_email( $coupon, $this->get_billing_email() );
 			if ( 0 < $coupon->get_usage_limit_per_user() && $usage_count >= $coupon->get_usage_limit_per_user() ) {
 				return new WP_Error(
@@ -1030,10 +1070,11 @@ abstract class WC_Abstract_Order extends WC_Abstract_Legacy_Order {
 
 	/**
 	 * Apply all coupons in this order again to all line items.
+	 * This method is public since WooCommerce 3.8.0.
 	 *
-	 * @since  3.2.0
+	 * @since 3.2.0
 	 */
-	protected function recalculate_coupons() {
+	public function recalculate_coupons() {
 		// Reset line item totals.
 		foreach ( $this->get_items() as $item ) {
 			$item->set_total( $item->get_subtotal() );
@@ -1494,7 +1535,7 @@ abstract class WC_Abstract_Order extends WC_Abstract_Legacy_Order {
 			if ( 0 > $fee_total ) {
 				$max_discount = round( $cart_total + $fees_total + $shipping_total, wc_get_price_decimals() ) * -1;
 
-				if ( $fee_total < $max_discount ) {
+				if ( $fee_total < $max_discount && 0 > $max_discount ) {
 					$item->set_total( $max_discount );
 				}
 			}
